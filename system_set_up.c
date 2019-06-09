@@ -19,15 +19,16 @@ void vSystemSetUp(void)
     uiSystemStandbyTimeSeconds=SYSTEM_STANDBY_TIME_INIT;
     uiSystemResetTimeSeconds=SYSTEM_RESET_TIME_INIT;
 
-    SysTickPeriodSet(SYS_CLK/10); //interrupt every 100ms
+    //Disable systemtime for more performance
+    //SysTickPeriodSet(SYS_CLK/10); //interrupt every 100ms
 
-    SysTickIntRegister(vSystemSysTickHandler);
+    //SysTickIntRegister(vSystemSysTickHandler);
 
-    IntPrioritySet(15,0x20); //15 is the place of the handler in Interrupt vector table
+    //IntPrioritySet(15,0x20); //15 is the place of the handler in Interrupt vector table
 
-    SysTickIntEnable();
+    //SysTickIntEnable();
 
-    SysTickEnable();
+    //SysTickEnable();
 }
 
 void vSystemSysTickHandler(void)

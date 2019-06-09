@@ -25,7 +25,7 @@ uint8_t uiDataReceiverTransmissionOK;
 
 //uint8_t uiDataReceiverBitField[SETTINGS_SLA_LENGTH_MAX][BIT_SEQUENCE_LENGTH];
 uint8_t uiDataReceiverBuffer[SETTINGS_SLA_LENGTH_MAX*BIT_SEQUENCE_LENGTH] = {0};
-uint8_t uiDataReceiverBufferIndex;
+uint16_t uiDataReceiverBufferIndex;
 
 /*
 const tDMAControlTable DMATaskList[] =
@@ -102,7 +102,7 @@ void vDataReceiverReceive(void)
 
         if(uiDataReceiverTransmissionOK)
         {
-            while(uiDataReceiverCounter < 255*24)
+            while(uiDataReceiverCounter < SETTINGS_SLA_LENGTH_MAX*24)
             {
 
                 if(UARTCharsAvail(UART7_BASE))
@@ -119,7 +119,7 @@ void vDataReceiverReceive(void)
                     {
                         UARTCharPut(UART7_BASE, 'f');
                         uiDataReceiverTransmissionOK = 0;
-                        uiDataReceiverCounter = 255*24;
+                        uiDataReceiverCounter = SETTINGS_SLA_LENGTH_MAX*24;
                         uiDataReceiverCounterFail++;
                     }
                 }
