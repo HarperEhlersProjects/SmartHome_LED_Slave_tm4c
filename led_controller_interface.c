@@ -8,8 +8,14 @@
 #include "interrupt.h"
 #include "hw_ints.h"
 
+//State if Transmitter
 uint8_t uiLEDCIState=LED_CONTROLLER_INTERFACE_STATE_RESET;
 
+/*
+ * Output Mask is masking out disabled output pins
+ * or holds several output pins on idle state (low Voltage) if all data for some connected led arrays
+ * already have been sent but not for others.
+ */
 uint8_t uiLEDCIOutputMask;
 uint8_t uiLEDCIOutputMaskInit;
 
@@ -69,13 +75,16 @@ void vLEDControllerInterfaceInit(void)
 
 void LEDControllerInterfaceBitHandler(void)
 {
+    //Clear interrupt flag
     TimerIntClear(LED_CONTROLLER_INTERFACE_TIMER_BIT, TIMER_TIMA_TIMEOUT);
 
+    //Enter statemachine of transmission process
     switch(uiLEDCIState)
     {
-
+        //Transmitter in state of reset impulse or in idle
         case LED_CONTROLLER_INTERFACE_STATE_RESET:
 
+            //Reset impulse
             if(uiLEDCIBitSequenceCounter<21)
             {
                 vLEDControllerInterfaceOutputSet(0x0 & uiLEDCIOutputMask);
@@ -83,6 +92,7 @@ void LEDControllerInterfaceBitHandler(void)
             }
             else
             {
+                //Change state to transmission if permission granted. Otherwise leave connection in idle.
                 if(uiLEDCITransmissionRun)
                 {
                     //vLEDControllerInterfaceOutputSet(0xFF & uiLEDCIOutputMask);
@@ -95,6 +105,7 @@ void LEDControllerInterfaceBitHandler(void)
 
            break;
 
+        //Transmitter in state of transmission
         case LED_CONTROLLER_INTERFACE_STATE_TRANSMISSION:
 
             if(uiLEDCIBitSequenceCounter<BIT_SEQUENCE_LENGTH)

@@ -1,7 +1,6 @@
 #include "system_set_up.h"
 #include "interrupt.h"
 
-#include "ui_statemachine.h"
 
 uint16_t uiSystemCounter;
 
@@ -41,7 +40,7 @@ void vSystemSysTickHandler(void)
     {
         tsSystemTime.ui100MilliSecond=0;
         tsSystemTime.uiSecond++;
-
+/*
         //----------------GENERATING STANDBY TIMER---------------------------------------
         if(uiSystemStandbyCounterSeconds>1)
         {
@@ -63,7 +62,7 @@ void vSystemSysTickHandler(void)
             uiSystemResetCounterSeconds--;
         }
         //----------------GENERATING STANDBY TIMER---------------------------------------
-
+*/
     }
     else if(tsSystemTime.uiMinute<59)
     {
