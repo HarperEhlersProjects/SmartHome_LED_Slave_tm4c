@@ -21,6 +21,8 @@ uint8_t uiLEDCIOutputMaskInit;
 
 uint16_t uiLEDCIBitSequenceCounter=0;
 uint16_t uiLEDCIDataPackageCounter=0;
+uint16_t uiLEDCIDataCounter=0;
+
 
 
 void vLEDControllerInterfaceInit(void)
@@ -71,6 +73,9 @@ void vLEDControllerInterfaceInit(void)
     uiLEDCIOutputMaskInit = SETTINGS_SLA0_ENABLE | (SETTINGS_SLA1_ENABLE<<1) | (SETTINGS_SLA2_ENABLE<<2) | (SETTINGS_SLA3_ENABLE<<3) | (SETTINGS_SLA4_ENABLE<<4) | (SETTINGS_SLA5_ENABLE<<5) | (SETTINGS_SLA6_ENABLE<<6) | (SETTINGS_SLA7_ENABLE<<7);
 
     uiLEDCITransmissionRun=0;
+
+    TransmitterBufferIndex = 0;
+    TransmitterBufferPtr = uiLEDCIDoubleBuffer[TransmitterBufferIndex];
 }
 
 void LEDControllerInterfaceBitHandler(void)
@@ -84,8 +89,8 @@ void LEDControllerInterfaceBitHandler(void)
         //Transmitter in state of reset impulse or in idle
         case LED_CONTROLLER_INTERFACE_STATE_RESET:
 
-            //Reset impulse
-            if(uiLEDCIBitSequenceCounter<21)
+            //Reset impulse for longer than 50 us
+            if(uiLEDCIBitSequenceCounter<100)
             {
                 vLEDControllerInterfaceOutputSet(0x0 & uiLEDCIOutputMask);
                 uiLEDCIBitSequenceCounter++;
@@ -112,10 +117,11 @@ void LEDControllerInterfaceBitHandler(void)
             {
                 vLEDControllerInterfaceOutputSet(0xFF & uiLEDCIOutputMask);
                 while(TIMER1_TAV_R > TIMER_INTERVAL_2us5-TIMER_INTERVAL_0_OFFSET);
-                vLEDControllerInterfaceOutputSet(uiLEDCIBitField[uiLEDCIDataPackageCounter][uiLEDCIBitSequenceCounter] & uiLEDCIOutputMask);
+                vLEDControllerInterfaceOutputSet(TransmitterBufferPtr[uiLEDCIDataCounter] & uiLEDCIOutputMask);
                 while(TIMER1_TAV_R > TIMER_INTERVAL_2us5-TIMER_INTERVAL_1_OFFSET);
                 vLEDControllerInterfaceOutputSet(0x0 & uiLEDCIOutputMask);
                 uiLEDCIBitSequenceCounter++;
+                uiLEDCIDataCounter++;
             }
             else
             {
@@ -127,11 +133,12 @@ void LEDControllerInterfaceBitHandler(void)
                 else
                 {
                     uiLEDCIState=LED_CONTROLLER_INTERFACE_STATE_RESET;
-                    uiLEDCIDataPackageCounter=0;
-                    uiLEDCITransmissionRun=0;
+                    uiLEDCIDataPackageCounter = 0;
+                    uiLEDCIDataCounter = 0;
+                    uiLEDCITransmissionRun = 0;
                 }
                 vLEDControllerInterfaceOutputSet(0x0 & uiLEDCIOutputMask);
-                uiLEDCIBitSequenceCounter=0;
+                uiLEDCIBitSequenceCounter = 0;
             }
 
         break;

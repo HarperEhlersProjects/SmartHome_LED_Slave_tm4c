@@ -28,9 +28,7 @@ uint32_t uiDataReceiverCounter, uiDataReceiverCounter1,uiDataReceiverCounterFail
 
 uint8_t uiDataReceiverTransmissionOK;
 
-uint8_t uiDataReceiverBuffer[SETTINGS_SLA_LENGTH_MAX*BIT_SEQUENCE_LENGTH] = {0};
-uint16_t uiDataReceiverBufferIndex;
-
+uint8_t* ReceiverBufferPtr = 0;
 
 void vDataReceiverInit(void)
 {
@@ -56,11 +54,15 @@ void vDataReceiverInit(void)
     UARTEnable(UART7_BASE);
 
     uiDataReceiverCounterFail=0;
+
+    ReceiverBufferPtr = uiLEDCIDoubleBuffer[1];
 }
 
 
 void vDataReceiverReceive(void)
 {
+    //vDelayMicroSec(1);
+
     uiDataReceiverTransmissionOK = 0;
     while(!uiDataReceiverTransmissionOK)
     {
@@ -96,7 +98,9 @@ void vDataReceiverReceive(void)
                 //Write received data into receiver buffer
                 if(UARTCharsAvail(UART7_BASE))
                 {
-                    uiDataReceiverBuffer[uiDataReceiverCounter] = UART7_DR_R;
+                    //uiDataReceiverBuffer[uiDataReceiverCounter] = UART7_DR_R;
+                    //Double buffer implementation
+                    ReceiverBufferPtr[uiDataReceiverCounter] = UART7_DR_R;
                     uiDataReceiverCounter++;
                 }
                 else
@@ -123,14 +127,11 @@ void vDataReceiverTransmissionInitiate(void)
 
     while(uiLEDCITransmissionRun);
 
-    for(uiDataReceiverCounter=0;uiDataReceiverCounter<SETTINGS_SLA_LENGTH_MAX;uiDataReceiverCounter++)
-    {
-        for(uiDataReceiverCounter1=0;uiDataReceiverCounter1<24;uiDataReceiverCounter1++)
-        {
-            uiLEDCIBitField[uiDataReceiverCounter][uiDataReceiverCounter1]=uiDataReceiverBuffer[uiDataReceiverCounter*24+uiDataReceiverCounter1];
-        }
-    }
+    //Rotate double buffer
+    TransmitterBufferIndex = !TransmitterBufferIndex;
+    ReceiverBufferPtr = uiLEDCIDoubleBuffer[!TransmitterBufferIndex];
+    TransmitterBufferPtr = uiLEDCIDoubleBuffer[TransmitterBufferIndex];
 
+    //give permission to transmit
     uiLEDCITransmissionRun=1;
-
 }

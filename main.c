@@ -12,7 +12,6 @@
 
 void main(void)
 {
-
     IntMasterDisable();
     vSystemSetUp();
     vSettingsInit();
