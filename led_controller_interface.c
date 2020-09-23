@@ -6,7 +6,7 @@
 #include "timer.h"
 #include "sysctl.h"
 #include "interrupt.h"
-#include "hw_ints.h"
+
 
 //State if Transmitter
 uint8_t uiLEDCIState=LED_CONTROLLER_INTERFACE_STATE_RESET;

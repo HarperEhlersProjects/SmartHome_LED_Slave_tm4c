@@ -4,13 +4,11 @@
 #include "interrupt.h"
 #include "timer.h"
 
+#include "data_receiver.h"
 #include "system_set_up.h"
 #include "delay.h"
 #include "led_controller_interface.h"
-#include "data_receiver.h"
 #include "settings.h"
-
-uint8_t uiCounter=0;
 
 void main(void)
 {
@@ -27,7 +25,7 @@ void main(void)
     while(1)
     {
         vDataReceiverReceive();
-        while(uiLEDCITransmissionRun==1);
+        while(uiLEDCITransmissionRun);
         vDataReceiverTransmissionInitiate();
     }
 }

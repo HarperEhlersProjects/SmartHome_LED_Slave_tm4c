@@ -18,7 +18,7 @@ void vSystemSetUp(void)
     uiSystemStandbyTimeSeconds=SYSTEM_STANDBY_TIME_INIT;
     uiSystemResetTimeSeconds=SYSTEM_RESET_TIME_INIT;
 
-    //Disable systemtime for more performance
+    //Disable system time for more performance
     //SysTickPeriodSet(SYS_CLK/10); //interrupt every 100ms
 
     //SysTickIntRegister(vSystemSysTickHandler);

@@ -1,6 +1,8 @@
 #ifndef LED_CONTROLLER_INTERFACE_H_
 #define LED_CONTROLLER_INTERFACE_H_
 
+#pragma once
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <hw_memmap.h>
@@ -40,7 +42,6 @@
 /*
  * Time interval for Timers
  */
-
 #define TIMER_INTERVAL_1us25 (((SYS_CLK/1000000)*125)/100)
 #define TIMER_INTERVAL_0us9 (((SYS_CLK/1000000)*9)/10)
 #define TIMER_INTERVAL_0us35 (((SYS_CLK/1000000)*35)/100)
@@ -66,14 +67,11 @@ uint8_t uiLEDCITransmissionRun;
 
 
 void vLEDControllerInterfaceInit(void);
-void vLEDControllerInterfaceTimerSynchro(void);
 
 void vLEDControllerInterfaceOutputSet(uint8_t uiOutputBitfield);
 
 void vLEDControllerInterfaceOutputMaskSet(void);
 
 void LEDControllerInterfaceBitHandler(void);
-void LEDControllerInterfaceHL0Handler(void);
-void LEDControllerInterfaceHL1Handler(void);
 
 #endif /* LED_CONTROLLER_INTERFACE_H_ */

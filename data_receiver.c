@@ -2,47 +2,35 @@
 
 #include "tm4c1294ncpdt.h"
 
+#include "stdint.h"
+#include "stdbool.h"
+
+#include "sysctl.h"
+#include "gpio.h"
+
 #include "led_controller_interface.h"
 #include "settings.h"
 #include "system_set_up.h"
 #include "delay.h"
-#include "udma.h"
 #include "uart.h"
 #include "pin_map.h"
 
 
-#define DMA_TRANSFER_COUNT (24*255)
-#define DMA_ITEM_SIZE UDMA_SIZE_8
-#define DMA_SOURCE_INCREMENT UDMA_SRC_INC_NONE
+//Data receiver configuration
+#define DATARECEIVER_BAUDRATE 2000000
 
-#define DMA_DESTINATION_INCREMENT UDMA_DST_INC_8
-#define DMA_ARB_SIZE UDMA_ARB_1024
-#define DMA_MODE UDMA_MODE_BASIC
+#define DATARECEIVER_UART_PINS (GPIO_PIN_4 | GPIO_PIN_5)
+#define DATARECEIVER_UART_PORT GPIO_PORTC_BASE
+#define DATARECEIVER_UART_SYSCTL_PORT SYSCTL_PERIPH_GPIOC
+
 
 uint32_t uiDataReceiverCounter, uiDataReceiverCounter1,uiDataReceiverCounterFail;
 
 uint8_t uiDataReceiverTransmissionOK;
 
-//uint8_t uiDataReceiverBitField[SETTINGS_SLA_LENGTH_MAX][BIT_SEQUENCE_LENGTH];
 uint8_t uiDataReceiverBuffer[SETTINGS_SLA_LENGTH_MAX*BIT_SEQUENCE_LENGTH] = {0};
 uint16_t uiDataReceiverBufferIndex;
 
-/*
-const tDMAControlTable DMATaskList[] =
-{
-uDMATaskStructEntry(DMA_TRANSFER_COUNT,
-                    DMA_ITEM_SIZE,
-                    DMA_SOURCE_INCREMENT,
-                    UART7_DR_R,
-                    DMA_DESTINATION_INCREMENT,
-                    uiDataReceiverBuffer,
-                    DMA_ARB_SIZE,
-                    DMA_MODE),
-
-//uDMATaskStructEntry(Task2Count, ...),
-};
-
-*/
 
 void vDataReceiverInit(void)
 {
@@ -77,43 +65,43 @@ void vDataReceiverReceive(void)
     while(!uiDataReceiverTransmissionOK)
     {
         while(UARTCharGetNonBlocking(UART7_BASE) >= 0);    //Clear FIFO
-        UARTCharPut(UART7_BASE, 'r');
+        UARTCharPut(UART7_BASE, 'r');   //request ('r') data from transmitter
 
-        while(!UARTCharsAvail(UART7_BASE))       //wait for ready Transmitter
+        while(!UARTCharsAvail(UART7_BASE))       //wait for received character
         {
-            //vDelayMiliSec(1);
+            //repeat request every timeout interval
             uiDataReceiverCounter1++;
-
-            if(uiDataReceiverCounter1 > 2000000) //repeat request if timeout is reached
+            if(uiDataReceiverCounter1 > 2000000)
             {
                 UARTCharPut(UART7_BASE, 'r');
                 uiDataReceiverCounter1 = 0;
             }
         }
 
+        //If Transmitter sends back a ready signal acknowledge it by sending a start ('s') request
         if(UARTCharGetNonBlocking(UART7_BASE) == 'r')
         {
             UARTCharPut(UART7_BASE, 's');
-            uiDataReceiverTransmissionOK = 1;
+            uiDataReceiverTransmissionOK = 1;   //give permission to receive data
         }
 
         uiDataReceiverCounter = 0;
         uiDataReceiverCounter1 = 0;
 
+        //Recieve data when permission granted
         if(uiDataReceiverTransmissionOK)
         {
             while(uiDataReceiverCounter < SETTINGS_SLA_LENGTH_MAX*24)
             {
-
+                //Write received data into receiver buffer
                 if(UARTCharsAvail(UART7_BASE))
                 {
-                    //uiDataReceiverBuffer[uiDataReceiverCounter] = UARTCharGetNonBlocking(UART7_BASE);
                     uiDataReceiverBuffer[uiDataReceiverCounter] = UART7_DR_R;
                     uiDataReceiverCounter++;
-                    //uiDataReceiverCounter1 = 0;
                 }
                 else
                 {
+                    //Abort receiving process and signal transmission failure ('f') when transmission takes to long
                     uiDataReceiverCounter1++;
                     if(uiDataReceiverCounter1 > 100000)
                     {
@@ -128,6 +116,8 @@ void vDataReceiverReceive(void)
     }
 }
 
+
+//Move received data to the output buffer and set the permission for transmission to the led arrays
 void vDataReceiverTransmissionInitiate(void)
 {
 
