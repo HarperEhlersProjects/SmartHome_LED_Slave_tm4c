@@ -61,7 +61,7 @@ void vDataReceiverInit(void)
 
 void vDataReceiverReceive(void)
 {
-    //vDelayMicroSec(1);
+    //vDelayMicroSec(100);
 
     uiDataReceiverTransmissionOK = 0;
     while(!uiDataReceiverTransmissionOK)

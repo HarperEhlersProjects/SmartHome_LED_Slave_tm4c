@@ -11,7 +11,7 @@
 #include "settings.h"
 
 void main(void)
-{
+    {
     IntMasterDisable();
     vSystemSetUp();
     vSettingsInit();

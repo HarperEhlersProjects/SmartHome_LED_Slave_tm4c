@@ -14,6 +14,7 @@
  */
 #define LED_CONTROLLER_INTERFACE_SYSCTL_OUTPUT_PORT SYSCTL_PERIPH_GPIOK
 #define LED_CONTROLLER_INTERFACE_OUTPUT_PORT GPIO_PORTK_BASE
+#define LED_CONTROLLER_INTERFACE_OUTPUT_DATA GPIO_PORTK_DATA_R
 
 /*
  * Use all pins for the output port.
@@ -49,10 +50,13 @@
 #define TIMER_INTERVAL_50us (SYS_CLK/100000)*5
 #define TIMER_INTERVAL_2us5 (SYS_CLK/10000000)*25
 #define TIMER_INTERVAL_0us5 (SYS_CLK/10000000)*5
+#define TIMER_INTERVAL_0us1 (SYS_CLK/10000000)
 #define TIMER_INTERVAL_1us2 (SYS_CLK/10000000)*12
 
-#define TIMER_INTERVAL_0_OFFSET 150//130
-#define TIMER_INTERVAL_1_OFFSET 205//195
+#define TIMER_INTERVAL_HIGHLOW_OFFSET (-TIMER_INTERVAL_0us1)
+#define TIMER_INTERVAL_PULLDOWN_OFFSET TIMER_INTERVAL_0us5
+
+#define TIMER_INTERVAL_BIT_INTERRUPT (TIMER_INTERVAL_1us25+TIMER_INTERVAL_0us5)
 
 #define BIT_SEQUENCE_LENGTH 24
 
@@ -76,6 +80,10 @@ void vLEDControllerInterfaceOutputSet(uint8_t uiOutputBitfield);
 
 void vLEDControllerInterfaceOutputMaskSet(void);
 
-void LEDControllerInterfaceBitHandler(void);
+void highHandler(void);
+void dataHandler(void);
+void lowHandler(void);
+
+
 
 #endif /* LED_CONTROLLER_INTERFACE_H_ */

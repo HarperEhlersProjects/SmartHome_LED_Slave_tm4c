@@ -7,10 +7,6 @@
 #include "sysctl.h"
 #include "interrupt.h"
 
-
-//State if Transmitter
-uint8_t uiLEDCIState=LED_CONTROLLER_INTERFACE_STATE_RESET;
-
 /*
  * Output Mask is masking out disabled output pins
  * or holds several output pins on idle state (low Voltage) if all data for some connected led arrays
@@ -19,11 +15,11 @@ uint8_t uiLEDCIState=LED_CONTROLLER_INTERFACE_STATE_RESET;
 uint8_t uiLEDCIOutputMask;
 uint8_t uiLEDCIOutputMaskInit;
 
-uint16_t uiLEDCIBitSequenceCounter=0;
-uint16_t uiLEDCIDataPackageCounter=0;
-uint16_t uiLEDCIDataCounter=0;
+//Current index of buffer;
+uint16_t uiLEDCIDataCounter=SETTINGS_SLA_LENGTH_MAX*BIT_SEQUENCE_LENGTH;
+uint16_t uiResetCounter = 0;
 
-
+uint8_t transmissionStopped = 0;
 
 void vLEDControllerInterfaceInit(void)
 {
@@ -39,37 +35,63 @@ void vLEDControllerInterfaceInit(void)
     GPIODirModeSet(LED_CONTROLLER_INTERFACE_OUTPUT_PORT,LED_CONTROLLER_INTERFACE_OUTPUT_PINS,GPIO_DIR_MODE_OUT);   //select pins defined in LED_CONTROLLER_INTERFACE_OUTPUT_PINS
 
     //Enable Clock for NZR-Bit-Timer
-    SysCtlPeripheralEnable(LED_CONTROLLER_INTERFACE_SYSCTL_TIMER_BIT);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER1);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER2);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
     //wait 3 clocksycles for SysCtlPeripheralEnable
     asm("\tnop;\r\n\tnop;\r\n\tnop;\r\n");
 
     //Disable timer for configuration
-    TimerDisable(LED_CONTROLLER_INTERFACE_TIMER_BIT, TIMER_A);
+    TimerDisable(TIMER1_BASE, TIMER_A);
+    TimerDisable(TIMER2_BASE, TIMER_A);
+    TimerDisable(TIMER3_BASE, TIMER_A);
 
     //Configure Bit-Timer as periodic with full width
-    TimerConfigure(LED_CONTROLLER_INTERFACE_TIMER_BIT, TIMER_CFG_PERIODIC);
+    TimerConfigure(TIMER1_BASE, TIMER_CFG_PERIODIC);
+    TimerConfigure(TIMER2_BASE, TIMER_CFG_PERIODIC);
+    TimerConfigure(TIMER3_BASE, TIMER_CFG_PERIODIC);
+
+    TIMER2_TAMR_R |= 0x20;
+    TIMER3_TAMR_R |= 0x20;
 
     //Load timers with an interval for 2.5 micro seconds
-    TimerLoadSet(LED_CONTROLLER_INTERFACE_TIMER_BIT,TIMER_A,TIMER_INTERVAL_2us5);
+    TimerLoadSet(TIMER1_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT);
+    TimerLoadSet(TIMER2_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT);
+    TimerLoadSet(TIMER3_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT);
+
+    TimerMatchSet(TIMER2_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT-TIMER_INTERVAL_0us35);
+    TimerMatchSet(TIMER3_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT-TIMER_INTERVAL_0us9);
 
     //Set interrupt priority
     //LEDControllerInterface need to get the highest priority for fluid transmission
-    IntPrioritySet(INT_TIMER1A,0x0);
+    IntPrioritySet(INT_TIMER1A,0x2);
+    IntPrioritySet(INT_TIMER2A,0x2);
+    IntPrioritySet(INT_TIMER3A,0x2);
 
     //Clear timer interrupt flags
     TimerIntClear(LED_CONTROLLER_INTERFACE_TIMER_BIT, TIMER_TIMA_TIMEOUT);
-    //TimerIntClear(LED_CONTROLLER_INTERFACE_TIMER_HL, TIMER_TIMA_TIMEOUT | TIMER_TIMB_TIMEOUT);
+    TIMER2_ICR_R |= 0x10;
+    TIMER3_ICR_R |= 0x10;
 
     //Register Interrupts and write IVT in RAM
-    TimerIntRegister(LED_CONTROLLER_INTERFACE_TIMER_BIT,TIMER_A,LEDControllerInterfaceBitHandler);
+    TimerIntRegister(TIMER1_BASE,TIMER_A,highHandler);
+    TimerIntRegister(TIMER2_BASE,TIMER_A,dataHandler);
+    TimerIntRegister(TIMER3_BASE,TIMER_A,lowHandler);
 
-    //Enable Timer Interrupts
-    TimerIntEnable(LED_CONTROLLER_INTERFACE_TIMER_BIT, TIMER_TIMA_TIMEOUT);
+    //Enable timer interrupt of low handler
+    //TIMER1_IMR_R |= 0x01;
+    //TIMER2_IMR_R |= 0x10;
+    TIMER3_IMR_R |= 0x10;
 
-    TimerDisable(LED_CONTROLLER_INTERFACE_TIMER_BIT, TIMER_A);
+    //Start timer
     TIMER1_CTL_R|=0x001;
+    TIMER2_CTL_R|=0x001;
+    TIMER3_CTL_R|=0x001;
 
-    //calculate initial Outputmask for every transmit
+    //Synchronize timer
+    TimerSynchronize(TIMER0_BASE,TIMER_1A_SYNC | TIMER_2A_SYNC |  TIMER_3A_SYNC);
+
+    //Calculate initial Outputmask for every transmit
     uiLEDCIOutputMaskInit = SETTINGS_SLA0_ENABLE | (SETTINGS_SLA1_ENABLE<<1) | (SETTINGS_SLA2_ENABLE<<2) | (SETTINGS_SLA3_ENABLE<<3) | (SETTINGS_SLA4_ENABLE<<4) | (SETTINGS_SLA5_ENABLE<<5) | (SETTINGS_SLA6_ENABLE<<6) | (SETTINGS_SLA7_ENABLE<<7);
 
     uiLEDCITransmissionRun=0;
@@ -78,78 +100,72 @@ void vLEDControllerInterfaceInit(void)
     TransmitterBufferPtr = uiLEDCIDoubleBuffer[TransmitterBufferIndex];
 }
 
-void LEDControllerInterfaceBitHandler(void)
+void highHandler(void)
 {
     //Clear interrupt flag
-    TimerIntClear(LED_CONTROLLER_INTERFACE_TIMER_BIT, TIMER_TIMA_TIMEOUT);
+    TIMER1_ICR_R |= 0x01;
 
-    //Enter statemachine of transmission process
-    switch(uiLEDCIState)
+    //Set output high for the beginning of any data bit
+    LED_CONTROLLER_INTERFACE_OUTPUT_DATA = 0xFF;
+}
+
+void dataHandler(void)
+{
+    TIMER2_ICR_R |= 0x10;
+
+    //Set output high or low according to data
+    LED_CONTROLLER_INTERFACE_OUTPUT_DATA = TransmitterBufferPtr[uiLEDCIDataCounter];
+    uiLEDCIDataCounter++;
+}
+
+void lowHandler(void)
+{
+    TIMER3_ICR_R |= 0x10;
+
+    //Set output low for the end of any data bit or the reset phase.
+    LED_CONTROLLER_INTERFACE_OUTPUT_DATA = 0x0;
+
+    //Check if one transmission is complete
+    if(uiLEDCIDataCounter >= SETTINGS_SLA_LENGTH_MAX*BIT_SEQUENCE_LENGTH)
     {
-        //Transmitter in state of reset impulse or in idle
-        case LED_CONTROLLER_INTERFACE_STATE_RESET:
+        //Stop transmission once
+        if(!transmissionStopped)
+        {
+            uiLEDCITransmissionRun = 0;
+            uiLEDCIDataCounter++;
+            transmissionStopped = 1;
+        }
 
-            //Reset impulse for longer than 50 us
-            if(uiLEDCIBitSequenceCounter<100)
-            {
-                vLEDControllerInterfaceOutputSet(0x0 & uiLEDCIOutputMask);
-                uiLEDCIBitSequenceCounter++;
-            }
-            else
-            {
-                //Change state to transmission if permission granted. Otherwise leave connection in idle.
-                if(uiLEDCITransmissionRun)
-                {
-                    //vLEDControllerInterfaceOutputSet(0xFF & uiLEDCIOutputMask);
-                    uiLEDCIState=LED_CONTROLLER_INTERFACE_STATE_TRANSMISSION;
-                    uiLEDCIBitSequenceCounter=0;
-                    //Reset Outputmask
-                    uiLEDCIOutputMask=uiLEDCIOutputMaskInit;
-                }
-            }
+        //Disable interrupts of highHandler and dataHandler if one transmission completed.
+        TIMER1_IMR_R &= 0xFE;
+        TIMER2_IMR_R &= 0xEF;
+        TIMER1_ICR_R |= 0x01;
+        TIMER2_ICR_R |= 0x10;
 
-           break;
+        //If reset time of above 50us is reached and permission of transmission is granted
+        //enable interrupts of highHandler and lowHandler and reset transmission and reset counter.
+        uiResetCounter++;
+        if(uiResetCounter > 150 && uiLEDCITransmissionRun)
+        {
+            transmissionStopped = 0;
+            uiResetCounter = 0;
+            uiLEDCIDataCounter = 0;
 
-        //Transmitter in state of transmission
-        case LED_CONTROLLER_INTERFACE_STATE_TRANSMISSION:
-
-            if(uiLEDCIBitSequenceCounter<BIT_SEQUENCE_LENGTH)
-            {
-                vLEDControllerInterfaceOutputSet(0xFF & uiLEDCIOutputMask);
-                while(TIMER1_TAV_R > TIMER_INTERVAL_2us5-TIMER_INTERVAL_0_OFFSET);
-                vLEDControllerInterfaceOutputSet(TransmitterBufferPtr[uiLEDCIDataCounter] & uiLEDCIOutputMask);
-                while(TIMER1_TAV_R > TIMER_INTERVAL_2us5-TIMER_INTERVAL_1_OFFSET);
-                vLEDControllerInterfaceOutputSet(0x0 & uiLEDCIOutputMask);
-                uiLEDCIBitSequenceCounter++;
-                uiLEDCIDataCounter++;
-            }
-            else
-            {
-                uiLEDCIDataPackageCounter++;
-                if(uiLEDCIDataPackageCounter < SETTINGS_SLA_LENGTH_MAX)
-                {
-                    vLEDControllerInterfaceOutputMaskSet();
-                }
-                else
-                {
-                    uiLEDCIState=LED_CONTROLLER_INTERFACE_STATE_RESET;
-                    uiLEDCIDataPackageCounter = 0;
-                    uiLEDCIDataCounter = 0;
-                    uiLEDCITransmissionRun = 0;
-                }
-                vLEDControllerInterfaceOutputSet(0x0 & uiLEDCIOutputMask);
-                uiLEDCIBitSequenceCounter = 0;
-            }
-
-        break;
+            TIMER1_ICR_R |= 0x01;
+            TIMER2_ICR_R |= 0x10;
+            TIMER1_IMR_R |= 0x01;
+            TIMER2_IMR_R |= 0x10;
+        }
     }
 }
 
 void inline vLEDControllerInterfaceOutputSet(uint8_t uiOutputBitfield)
 {
-    GPIOPinWrite(LED_CONTROLLER_INTERFACE_OUTPUT_PORT,LED_CONTROLLER_INTERFACE_OUTPUT_PINS,uiOutputBitfield);      //write on pins defined in LED_CONTROLLER_INTERFACE_OUTPUT_PINS
+    //write on pins defined in LED_CONTROLLER_INTERFACE_OUTPUT_PINS
+    GPIOPinWrite(LED_CONTROLLER_INTERFACE_OUTPUT_PORT,LED_CONTROLLER_INTERFACE_OUTPUT_PINS,uiOutputBitfield);
 }
 
+/*
 void inline vLEDControllerInterfaceOutputMaskSet(void)
 {
     uint16_t uiCounter;
@@ -162,3 +178,4 @@ void inline vLEDControllerInterfaceOutputMaskSet(void)
         }
     }
 }
+*/
