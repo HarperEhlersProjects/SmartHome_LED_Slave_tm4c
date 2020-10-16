@@ -6,6 +6,10 @@
 #include "timer.h"
 #include "sysctl.h"
 #include "interrupt.h"
+#include "udma.h"
+
+//uDMA control table
+uint8_t uDMAControlTable[1024];
 
 /*
  * Output Mask is masking out disabled output pins
@@ -16,13 +20,28 @@ uint8_t uiLEDCIOutputMask;
 uint8_t uiLEDCIOutputMaskInit;
 
 //Current index of buffer;
-uint16_t uiLEDCIDataCounter=SETTINGS_SLA_LENGTH_MAX*BIT_SEQUENCE_LENGTH;
+uint16_t uiLEDCIDataCounter = SETTINGS_SLA_LENGTH_MAX*BIT_SEQUENCE_LENGTH;
 uint16_t uiResetCounter = 0;
 
 uint8_t transmissionStopped = 0;
 
 void vLEDControllerInterfaceInit(void)
 {
+    //Setup uDMA channel 20 for timer 1 triggered data transfer to GPIO Port K
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_UDMA);
+    asm("\tnop;\r\n\tnop;\r\n\tnop;\r\n");
+
+    uDMAEnable();
+
+    uDMAControlBaseSet(uDMAControlTable);
+    uDMAChannelControlSet(20 | UDMA_PRI_SELECT, UDMA_SIZE_8 | UDMA_SRC_INC_8 | UDMA_DST_INC_NONE | UDMA_ARB_1);
+    uDMAChannelControlSet(20 | UDMA_ALT_SELECT, UDMA_SIZE_8 | UDMA_SRC_INC_8 | UDMA_DST_INC_NONE | UDMA_ARB_1);
+
+    uDMAChannelAssign(UDMA_CHANNEL_TMR1A);
+    uDMAIntRegister(20, uDMAPingPongHandler);
+    uDMAChannelDisable(20);
+
+
     //Enable Clock for led controller interface output GPIO port
     SysCtlPeripheralEnable(LED_CONTROLLER_INTERFACE_SYSCTL_OUTPUT_PORT);
     //wait 3 clocksycles for SysCtlPeripheralEnable
@@ -42,41 +61,43 @@ void vLEDControllerInterfaceInit(void)
     asm("\tnop;\r\n\tnop;\r\n\tnop;\r\n");
 
     //Disable timer for configuration
-    TimerDisable(TIMER1_BASE, TIMER_A);
     TimerDisable(TIMER2_BASE, TIMER_A);
+    TimerDisable(TIMER1_BASE, TIMER_A);
     TimerDisable(TIMER3_BASE, TIMER_A);
 
     //Configure Bit-Timer as periodic with full width
-    TimerConfigure(TIMER1_BASE, TIMER_CFG_PERIODIC);
     TimerConfigure(TIMER2_BASE, TIMER_CFG_PERIODIC);
+    TimerConfigure(TIMER1_BASE, TIMER_CFG_PERIODIC);
     TimerConfigure(TIMER3_BASE, TIMER_CFG_PERIODIC);
 
     TIMER2_TAMR_R |= 0x20;
     TIMER3_TAMR_R |= 0x20;
 
-    //Load timers with an interval for 2.5 micro seconds
-    TimerLoadSet(TIMER1_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT);
+    //Load timer with an interval for 2.5 micro seconds
     TimerLoadSet(TIMER2_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT);
+    TimerLoadSet(TIMER1_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT);
     TimerLoadSet(TIMER3_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT);
 
-    TimerMatchSet(TIMER2_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT-TIMER_INTERVAL_0us35);
+    TimerMatchSet(TIMER1_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT-TIMER_INTERVAL_0us35);
     TimerMatchSet(TIMER3_BASE,TIMER_A,TIMER_INTERVAL_BIT_INTERRUPT-TIMER_INTERVAL_0us9);
 
     //Set interrupt priority
     //LEDControllerInterface need to get the highest priority for fluid transmission
-    IntPrioritySet(INT_TIMER1A,0x2);
     IntPrioritySet(INT_TIMER2A,0x2);
+    //IntPrioritySet(INT_TIMER1A,0x2);
     IntPrioritySet(INT_TIMER3A,0x2);
 
     //Clear timer interrupt flags
-    TimerIntClear(LED_CONTROLLER_INTERFACE_TIMER_BIT, TIMER_TIMA_TIMEOUT);
-    TIMER2_ICR_R |= 0x10;
+    TimerIntClear(TIMER2_BASE, TIMER_TIMA_TIMEOUT);
+    TIMER1_ICR_R |= 0x10;
     TIMER3_ICR_R |= 0x10;
 
     //Register Interrupts and write IVT in RAM
-    TimerIntRegister(TIMER1_BASE,TIMER_A,highHandler);
-    TimerIntRegister(TIMER2_BASE,TIMER_A,dataHandler);
+    TimerIntRegister(TIMER2_BASE,TIMER_A,highHandler);
+    //TimerIntRegister(TIMER1_BASE,TIMER_A,dataHandler);
     TimerIntRegister(TIMER3_BASE,TIMER_A,lowHandler);
+
+    TimerDMAEventSet(TIMER1_BASE, TIMER_DMA_MODEMATCH_A);
 
     //Enable timer interrupt of low handler
     //TIMER1_IMR_R |= 0x01;
@@ -84,8 +105,8 @@ void vLEDControllerInterfaceInit(void)
     TIMER3_IMR_R |= 0x10;
 
     //Start timer
-    TIMER1_CTL_R|=0x001;
     TIMER2_CTL_R|=0x001;
+    TIMER1_CTL_R|=0x001;
     TIMER3_CTL_R|=0x001;
 
     //Synchronize timer
@@ -100,10 +121,43 @@ void vLEDControllerInterfaceInit(void)
     TransmitterBufferPtr = uiLEDCIDoubleBuffer[TransmitterBufferIndex];
 }
 
+void uDMAPingPongHandler(void)
+{
+    int16_t uiTransferSize;
+
+    //Update size of transfered data
+    uiLEDCIDataCounter += 1024;
+    uiTransferSize = SETTINGS_SLA_LENGTH_MAX*BIT_SEQUENCE_LENGTH - uiLEDCIDataCounter;
+
+    //Determine next transfer size
+    if(uiTransferSize > 1024)
+    {
+        uiTransferSize = 1024;
+    }
+    else if(uiTransferSize < 0)
+    {
+        uiTransferSize = 0;
+    }
+
+    if(uiTransferSize)
+    {
+        //Configure inactive control struct
+        if(uDMAChannelModeGet(20 | UDMA_ALT_SELECT) == UDMA_MODE_STOP)
+        {
+            uDMAChannelTransferSet(20 | UDMA_ALT_SELECT,UDMA_MODE_PINGPONG,TransmitterBufferPtr += uiLEDCIDataCounter,LED_CONTROLLER_INTERFACE_OUTPUT_DATA,(uint16_t) uiTransferSize);
+        }
+        else if(uDMAChannelModeGet(20 | UDMA_PRI_SELECT) == UDMA_MODE_STOP)
+        {
+            uDMAChannelTransferSet(20 | UDMA_PRI_SELECT,UDMA_MODE_PINGPONG,TransmitterBufferPtr += uiLEDCIDataCounter,LED_CONTROLLER_INTERFACE_OUTPUT_DATA,(uint16_t) uiTransferSize);
+        }
+    }
+}
+
+
 void highHandler(void)
 {
     //Clear interrupt flag
-    TIMER1_ICR_R |= 0x01;
+    TIMER2_ICR_R |= 0x01;
 
     //Set output high for the beginning of any data bit
     LED_CONTROLLER_INTERFACE_OUTPUT_DATA = 0xFF;
@@ -111,7 +165,7 @@ void highHandler(void)
 
 void dataHandler(void)
 {
-    TIMER2_ICR_R |= 0x10;
+    TIMER1_ICR_R |= 0x10;
 
     //Set output high or low according to data
     LED_CONTROLLER_INTERFACE_OUTPUT_DATA = TransmitterBufferPtr[uiLEDCIDataCounter];
@@ -132,15 +186,15 @@ void lowHandler(void)
         if(!transmissionStopped)
         {
             uiLEDCITransmissionRun = 0;
-            uiLEDCIDataCounter++;
             transmissionStopped = 1;
         }
 
         //Disable interrupts of highHandler and dataHandler if one transmission completed.
-        TIMER1_IMR_R &= 0xFE;
-        TIMER2_IMR_R &= 0xEF;
-        TIMER1_ICR_R |= 0x01;
-        TIMER2_ICR_R |= 0x10;
+        TIMER2_IMR_R &= 0xFE;
+        //TIMER1_IMR_R &= 0xEF;
+        TIMER2_ICR_R |= 0x01;
+        //TIMER1_ICR_R |= 0x10;
+        uDMAChannelDisable(20);
 
         //If reset time of above 50us is reached and permission of transmission is granted
         //enable interrupts of highHandler and lowHandler and reset transmission and reset counter.
@@ -151,10 +205,15 @@ void lowHandler(void)
             uiResetCounter = 0;
             uiLEDCIDataCounter = 0;
 
-            TIMER1_ICR_R |= 0x01;
-            TIMER2_ICR_R |= 0x10;
-            TIMER1_IMR_R |= 0x01;
-            TIMER2_IMR_R |= 0x10;
+            uDMAChannelTransferSet(UDMA_PRI_SELECT,UDMA_MODE_PINGPONG,TransmitterBufferPtr,LED_CONTROLLER_INTERFACE_OUTPUT_DATA,1024);
+            uiLEDCIDataCounter += 1024;
+            uDMAChannelTransferSet(UDMA_ALT_SELECT,UDMA_MODE_PINGPONG,TransmitterBufferPtr+1024,LED_CONTROLLER_INTERFACE_OUTPUT_DATA,1024);
+
+            TIMER2_ICR_R |= 0x01;
+            //TIMER1_ICR_R |= 0x10;
+            TIMER2_IMR_R |= 0x01;
+            //TIMER1_IMR_R |= 0x10;
+            uDMAChannelEnable(20);
         }
     }
 }

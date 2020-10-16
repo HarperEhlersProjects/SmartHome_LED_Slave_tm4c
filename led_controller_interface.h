@@ -84,6 +84,6 @@ void highHandler(void);
 void dataHandler(void);
 void lowHandler(void);
 
-
+void uDMAPingPongHandler(void);
 
 #endif /* LED_CONTROLLER_INTERFACE_H_ */
