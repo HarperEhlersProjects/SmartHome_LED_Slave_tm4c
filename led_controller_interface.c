@@ -150,6 +150,8 @@ void uDMAPingPongHandler(void)
         {
             uDMAChannelTransferSet(20 | UDMA_PRI_SELECT,UDMA_MODE_PINGPONG,TransmitterBufferPtr += uiLEDCIDataCounter,LED_CONTROLLER_INTERFACE_OUTPUT_DATA,(uint16_t) uiTransferSize);
         }
+
+        uDMAChannelEnable(20);
     }
 }
 
@@ -191,9 +193,9 @@ void lowHandler(void)
 
         //Disable interrupts of highHandler and dataHandler if one transmission completed.
         TIMER2_IMR_R &= 0xFE;
-        //TIMER1_IMR_R &= 0xEF;
+        TIMER1_IMR_R &= 0xEF;
         TIMER2_ICR_R |= 0x01;
-        //TIMER1_ICR_R |= 0x10;
+        TIMER1_ICR_R |= 0x10;
         uDMAChannelDisable(20);
 
         //If reset time of above 50us is reached and permission of transmission is granted
@@ -210,9 +212,9 @@ void lowHandler(void)
             uDMAChannelTransferSet(UDMA_ALT_SELECT,UDMA_MODE_PINGPONG,TransmitterBufferPtr+1024,LED_CONTROLLER_INTERFACE_OUTPUT_DATA,1024);
 
             TIMER2_ICR_R |= 0x01;
-            //TIMER1_ICR_R |= 0x10;
+            TIMER1_ICR_R |= 0x10;
             TIMER2_IMR_R |= 0x01;
-            //TIMER1_IMR_R |= 0x10;
+            TIMER1_IMR_R |= 0x10;
             uDMAChannelEnable(20);
         }
     }
